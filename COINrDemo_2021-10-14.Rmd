@@ -47,38 +47,56 @@ The second step is linked to the first. COINr requires three data frames as its 
 
 To understand the format needed for COINr, the easiest way is to look at the built in example data set in the COINr package. Please also see the [COINr vignette](https://cran.r-project.org/web/packages/COINr/vignettes/Overview.html) and the [online book](https://bluefoxr.github.io/COINrDoc/) where explanations are given in detail. Here, we simply view each of the three input data frames required.
 
+Here we will read in the data from a pre-prepared spreadsheet.
+
+```{r}
+library(readxl)
+IndData <- read_excel("ASEM_input_sheets.xlsx", sheet = "IndData")
+IndMeta <- read_excel("ASEM_input_sheets.xlsx", sheet = "IndMeta")
+AggMeta <- read_excel("ASEM_input_sheets.xlsx", sheet = "AggMeta")
+```
+
+If you didn't already look at these in Excel, look at them here.
+
 The first data frame, called `IndData`, specifies the indicator values, for each country (or more generally, for each *unit*):
 
 ```{r}
-library(COINr)
-ASEMIndData
+IndData
 ```
 
 The second, `IndMeta` gives the metadata for each indicator. Here, the index structure and indicator weights are also defined.
 
 ```{r}
-ASEMIndMeta
+IndMeta
 ```
 
 Finally, the `AggMeta` data frame gives some details about the names and weights of each aggregation group.
 
 ```{r}
-ASEMAggMeta
+AggMeta
 ```
 
-You can also explore these data frames using `View()` in R Studio.
+You can also explore these data frames using `View()` in R Studio. They are also available as the built-data set to COINr
 
 # Assemble the COIN
 
 Having your three data frames in hand, you now assemble the COIN.
 
 ```{r}
-ASEM <- assemble(IndData = ASEMIndData,
-                 IndMeta = ASEMIndMeta,
-                 AggMeta = ASEMAggMeta)
+library(COINr)
+ASEM <- assemble(IndData = IndData,
+                 IndMeta = IndMeta,
+                 AggMeta = AggMeta)
 ```
 
 COINr returns some details about the new COIN and runs a number of checks to make sure the supplied data frames obey the rules. The idea is that if it is possible to assemble a COIN, from this point onwards things should be fairly straightforward.
+
+We can immediately see some information about the COIN:
+
+```{r}
+ASEM
+```
+
 
 Examine the COIN by running `View(ASEM)` in R Studio. Notice that we have one data set, called "Raw".
 
@@ -159,7 +177,7 @@ Now let's see the results. First, a simple table.
 # get a results table and write to COIN
 ASEM <- getResults(ASEM, tab_type = "Aggregates", out2 = "COIN")
 # display results
-ASEM$Results$AggregatesScores
+ASEM$Results$AggregatesScore
 ```
 
 We write to the COIN because later this will all be exported in one go. Now we can explore the results in the app.
@@ -174,6 +192,14 @@ All plots available in the app can be also accessed individually. We can see a m
 ```{r}
 iplotMap(ASEM, dset = "Aggregated", isel = "Index")
 ```
+
+At this point, let's check the contents of the COIN again briefly:
+
+```{r}
+ASEM
+```
+
+Here we see that data sets have been added for each of the construction operations we performed.
 
 Finally, we export everything to Excel.
 
