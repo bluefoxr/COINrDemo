@@ -1,0 +1,311 @@
+---
+title: "COINr Demo (COIN Week 2021)"
+author: "William Becker"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE)
+```
+
+This is an R Markdown notebook which combines text, code, and code outputs into one document. This notebook was created to demonstrate a few features of the [COINr package](https://cran.r-project.org/package=COINr), for the COIN week training 2021. It is not meant to thoroughly describe each step, but simply gives a record of some of the commands used in the demo.
+
+# Installation
+
+Assuming you have R (and ideally R Studio) already installed, COINr can be installed in either of two ways.
+
+The **official CRAN version** can be installed by running:
+
+```{r, eval=F}
+install.packages("COINr")
+```
+
+Or simply browsing for the package in R Studio. The CRAN version will be updated every 1-2 months or so, and has passed all official CRAN checks (there are many). 
+
+If you want the very latest version of COINr (I am usually adding features and fixing bugs as I find them), you can install the development version from GitHub. First, install the 'devtools' package if you don't already have it, then run:
+
+```{r, eval=F}
+devtools::install_github("bluefoxr/COINr")
+```
+
+This should directly install the package from Github, without any other steps. You may be asked to update packages. This might not be strictly necessary, so you can also try skipping this step.
+
+# Data import
+
+To build a composite indicator in COINr, you will follow these steps:
+
+1. Import data into R
+2. Get the data in the correct format for COINr
+3. Assemble a "COIN" using COINr's `assemble()` function
+4. Use COINr functions on the "COIN" to build, analyse and visualise the composite indicator
+
+The first step can be done in any number of ways. If your data is mainly in Excel, you can read it in using R Studio's "Import Dataset" tool, which uses the readxl library. You can also read from csv, or directly download your data from R from data sources such as Eurostat using e.g. the 'eurostat' package. R has many API interfaces.
+
+The second step is linked to the first. COINr requires three data frames as its main inputs. These give the indicator data, metadata, and the structure of the index, among other things. This means that besides importing the data, you also have to adjust it to the correct format. Note that this step *can also be done before importing the data into R*, for example, you may prefer to assemble the tables in Excel (or another tool) first. In this case, steps 1 and 2 would be reversed.
+
+To understand the format needed for COINr, the easiest way is to look at the built in example data set in the COINr package. Please also see the [COINr vignette](https://cran.r-project.org/web/packages/COINr/vignettes/Overview.html) and the [online book](https://bluefoxr.github.io/COINrDoc/) where explanations are given in detail. Here, we simply view each of the three input data frames required.
+
+The first data frame, called `IndData`, specifies the indicator values, for each country (or more generally, for each *unit*):
+
+```{r}
+library(COINr)
+ASEMIndData
+```
+
+The second, `IndMeta` gives the metadata for each indicator. Here, the index structure and indicator weights are also defined.
+
+```{r}
+ASEMIndMeta
+```
+
+Finally, the `AggMeta` data frame gives some details about the names and weights of each aggregation group.
+
+```{r}
+ASEMAggMeta
+```
+
+You can also explore these data frames using `View()` in R Studio.
+
+# Assemble the COIN
+
+Having your three data frames in hand, you now assemble the COIN.
+
+```{r}
+ASEM <- assemble(IndData = ASEMIndData,
+                 IndMeta = ASEMIndMeta,
+                 AggMeta = ASEMAggMeta)
+```
+
+COINr returns some details about the new COIN and runs a number of checks to make sure the supplied data frames obey the rules. The idea is that if it is possible to assemble a COIN, from this point onwards things should be fairly straightforward.
+
+Examine the COIN by running `View(ASEM)` in R Studio. Notice that we have one data set, called "Raw".
+
+Now we can plot the structure of the index.
+
+```{r}
+plotframework(ASEM)
+```
+
+We can also check indicator statistics.
+
+```{r}
+ASEM <- getStats(ASEM, dset = "Raw")
+ASEM$Analysis$Raw$StatTable |> roundDF()
+```
+
+Statistics can be added to the COIN or output as a separate list of data frames. The `getStats()` function also outputs correlation tables.
+
+We can view distributions of individual indicators, or groups of indicators.
+
+```{r}
+# A single indicator
+plotIndDist(ASEM, dset = "Raw", icodes = "Goods", type = "Histogram")
+# A named group of indicators
+plotIndDist(ASEM, dset = "Raw", icodes = "Political", type = "Violindot")
+```
+
+We can also see ordered indicator values, in this case, from a group of units (Europe).
+
+```{r}
+iplotBar(ASEM, dset = "Raw", isel = "CO2", aglev = 1, from_group = list(Group_EurAsia = "Europe"))
+```
+
+# Building the index
+
+We can now build the index. We will impute, treat outliers, normalise and aggregate. First the imputation.
+
+```{r}
+# impute missing values with GDP group median
+ASEM <- impute(ASEM, dset = "Raw", imtype = "indgroup_median", groupvar = "Group_GDP")
+```
+
+Now we treat any outliers from the imputed data using a standard Winsorisation and log transform approach.
+
+```{r}
+ASEM <- treat(ASEM, dset = "Imputed", winmax = 5)
+```
+
+We can see what indicators were treated using information stored in the COIN.
+
+```{r}
+ASEM$Analysis$Treated$TreatSummary
+```
+
+We can also visualise and compare before/after distributions using a built in app.
+
+```{r, eval=FALSE}
+# only run in interactive R session
+indDash(ASEM)
+```
+
+Now we will normalise the treated indicators using a min-max approach between 1 and 100.
+
+```{r}
+ASEM <- normalise(ASEM, dset = "Treated", ntype = "minmax", npara = list(minmax =  c(1,100)))
+```
+
+Finally we will aggregate the normalised data according to the structure already specified in `IndMeta`. We will use an arithmetic mean for the first and second levels of aggregation (indicators to pillars and pillars to sub-indexes), and geometric mean for the last (sub-indexes to index). Weights are already input in `IndMeta`.
+
+```{r}
+ASEM <- aggregate(ASEM, agtype = "mixed", dset = "Normalised",
+                  agtype_bylevel = c("arith_mean", "arith_mean", "geom_mean"))
+```
+
+Now let's see the results. First, a simple table.
+
+```{r}
+# get a results table and write to COIN
+ASEM <- getResults(ASEM, tab_type = "Aggregates", out2 = "COIN")
+# display results
+ASEM$Results$AggregatesScores
+```
+
+We write to the COIN because later this will all be exported in one go. Now we can explore the results in the app.
+
+```{r, eval=F}
+# only run in interactive R session
+resultsDash(ASEM)
+```
+
+All plots available in the app can be also accessed individually. We can see a map of overall scores.
+
+```{r}
+iplotMap(ASEM, dset = "Aggregated", isel = "Index")
+```
+
+Finally, we export everything to Excel.
+
+```{r}
+coin2Excel(ASEM, fname = "ASEM_demo_results.xlsx")
+```
+
+# Analysis
+
+COINr has sophisticated correlation plotting which also accounts for the hierarchical structure of the index.
+
+```{r}
+# sustainability indicators
+plotCorr(ASEM, dset = "Normalised", icodes = "Sust", showvals = F, flagcolours = T, grouplev = 0,
+         box_level = 2)
+```
+
+We can plot aggregates against indicators, in fact correlate more or less anything against everything.
+
+```{r}
+plotCorr(ASEM, dset = "Aggregated", aglevs = c(1,2), box_level = 2, withparent = "none", box_colour = "black")
+```
+
+We can also see the correlations of indicators or aggregates with all parent levels.
+
+```{r}
+plotCorr(ASEM, dset = "Aggregated", aglevs = 1, icodes = "Sust", withparent = "family", flagcolours = T)
+```
+
+If you wish to change weights and see the effects on correlations, you can use the built in re-weighting app.
+
+```{r, eval=F}
+# only in interactive R session
+rew8r(ASEM)
+```
+
+# Adjustments
+
+A major advantage of working with COINr is that making alternative indexes and adjustments is very easy. It is done by editing the `.$Method` folder in the COIN and then calling `regen()`.
+
+```{r ASEMAltNorm}
+# Make a copy
+ASEMAltNorm <- ASEM
+
+# Edit .$Method
+ASEMAltNorm$Method$normalise$ntype <- "borda"
+
+# Regenerate
+ASEMAltNorm <- regen(ASEMAltNorm, quietly = TRUE)
+```
+
+Next, the two alternative COINs can be compared using `compTable()`.
+
+```{r}
+compTable(ASEM, ASEMAltNorm, dset = "Aggregated",
+                 isel = "Index") |>
+  head(10)
+```
+
+This can be applied to any methodology in the COIN.
+
+# Sensitivity analysis
+
+To specify a sensitivity analysis, \pkg{COINr} needs to know which parameters to perturb, and what the alternative values should be. This is done by creating a named list which is input as an argument to `sensitivity()`. The following gives an example of this list, perturbing three assumptions (imputation method, normalisation method and weights).
+
+```{r SAspecs, eval=F}
+# define noise to be applied to weights
+nspecs <- data.frame(AgLevel = c(2,3), NoiseFactor = c(0.25,0.25))
+
+# create list specifying assumptions to vary and alternatives
+SAspecs <- list(
+  impute = list(imtype = c("indgroup_mean", "ind_mean", "none")),
+  normalise = list(ntype = c("minmax", "rank", "dist2max")),
+  weights = list(NoiseSpecs = nspecs, Nominal = "Original")
+)
+```
+
+Run the sensitivity analysis (takes a few mins)....
+
+```{r runSA, eval = F}
+# This will take a few minutes to run
+SAresults <- sensitivity(ASEM, v_targ = "Index",
+                         SA_specs = SAspecs,
+                         N = 500,
+                         SA_type = "SA", Nboot = 1000)
+```
+
+```{r, echo=F, message=F}
+SAresults <- readRDS("SAresults_ASEMexample.rds")
+```
+
+These outputs can be inspected directly, or by \pkg{COINr}'s plotting functions for sensitivity analysis, `plotSA()` and `plotSARanks()`.
+
+```{r plotUAranks, message=F, warning=F, out.width="100%", fig.width= 9, fig.cap="Confidence intervals on index ranks."}
+plotSARanks(SAresults)
+```
+
+The sensitivity indices can be visualised in several ways - one of these is as box plots.
+
+```{r SAbox, message=F, warning=F, out.width="70%"}
+# plot bar chart
+plotSA(SAresults, ptype = "box")
+```
+
+A somewhat related exercise is to see what happens on removing indicators and even entire components of the index.
+
+```{r}
+testresults <- removeElements(ASEM, aglev = 1, isel = "Index", quietly = TRUE)
+
+library(ggplot2)
+ggplot(data.frame(Indicator = names(testresults$MeanAbsDiff[-1]),
+                  Impact = testresults$MeanAbsDiff[-1]),
+       aes(x=Indicator, y=Impact)) + 
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+# Reporting
+
+Last of all, we can generate unit reports for any country based on a template. For example, for New Zealand, run:
+
+```{r, eval=F}
+getUnitReport(ASEM, usel = "NZL", out_type = ".html")
+```
+
+Note this works also with multiple units at the same time.
+
+# From here
+
+You can get more info on COINr at
+
+* [The COINr vignette](https://cran.r-project.org/web/packages/COINr/vignettes/Overview.html)
+* [The online book](https://bluefoxr.github.io/COINrDoc/)
+* [The GitHub repo](https://github.com/bluefoxr/COINr)
+* [The CRAN page](https://cran.r-project.org/web/packages/COINr/index.html)
